@@ -74,8 +74,8 @@ class Turnos(Aplicacion):
         self.cargar_servicios()
         fecha = self.fecha.get()
         hora = self.hora.get()
-        mascota = [m['Id'] for m in self.mascotas if m['Nombre'] == self.selected_option.get()][0]
-        servicio = [s['Id'] for s in self.Servicios if m['Descripcion'] == self.selected_option.get()][0]
+        mascota = [m['Id'] for m in self.mascotas if m['Nombre'] == self.selection_mascota.get()][0]
+        servicio = [s['Id'] for s in self.Servicios if s['Descripcion'] == self.selection_servicios.get()][0]
         self.bd.insertar_cita(fecha, hora, mascota,servicio)
         self.limpiar_campos()
         self.actualizar_tabla()
