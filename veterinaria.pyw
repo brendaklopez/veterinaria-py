@@ -1,12 +1,12 @@
-from tkinter import Tk, Button, Entry, Label, ttk, StringVar, Scrollbar, Frame
+from tkinter import Tk, Button, Entry, Label, ttk, StringVar, Scrollbar, Frame, messagebox
 from conexion import Conexion
 
 class Aplicacion(Frame):
     def __init__(self, master, *args):
         super(). __init__(master, *args)
-        self.master.columnconfigure(0,weight=1)
-        self.master.rowconfigure(0, weight=1)
-        self.master.rowconfigure(1,weight=5)
+        self.combo_hora = None 
+        self.bd=Conexion()
+        self.master.configure(bg='white')
 
     def volver(self):
         self.master.destroy()
@@ -16,7 +16,13 @@ class Aplicacion(Frame):
         app = Menu(master=root)
         app.mainloop()
         
+    def alerta_vacio(self):
+        messagebox.showwarning("Alerta", "Debes completar todos los campos!")
+        
     def config_widgets(self):
+        self.master.columnconfigure(0,weight=1)
+        self.master.rowconfigure(0, weight=1)
+        self.master.rowconfigure(1,weight=5)
         self.frame_uno = Frame(self.master, bg='white',height=200,width=800)
         self.frame_uno.grid(column=0,row=0,sticky='nsew')
         self.frame_dos=Frame(self.master, bg='white', height=300, width=800)
@@ -41,28 +47,37 @@ class Aplicacion(Frame):
         Button(self.frame_uno, text='Eliminar', command = self.eliminar_fila,font= ('Arial', 9, 'bold'), width=20,
                bd=3 ).grid(column=2, row=3, pady= 5, padx=5)
         Button(self.frame_uno, text='Modificar', command= self.modificar, font= ('Arial', 9, 'bold'), width=20,
-			bd=3 ).grid(column=2, row=4, pady= 5, padx=5)
+            bd=3 ).grid(column=2, row=4, pady= 5, padx=5)
         Button(self.frame_uno, text='Atras', command= self.volver, font= ('Arial', 9, 'bold'), width=20,
-			bd=3 ).grid(column=2, row=5, pady= 5, padx=5)
+            bd=3 ).grid(column=2, row=5, pady= 5, padx=5)
 
 class Turnos(Aplicacion):
     def __init__(self, master, *args):
         super(). __init__(master, *args)
-        self.fecha = StringVar()
-        self.hora = StringVar()
-        self.selection_servicios= StringVar()
+        self.selection_fecha = StringVar()
+        self.selection_hora = StringVar()
+        self.selection_servicios = StringVar()
         self.selection_mascota = StringVar()
         self.mascotas= {}
         self.Servicios= {}
-        self.bd=Conexion()
+        self.Fechas= {}
+        self.Horas= {} 
         self.widgets()
         self.actualizar_tabla()
 
     def limpiar_campos(self):
-        self.hora.set('')
-        self.fecha.set('')
+        self.selection_servicios.set('')
+        self.selection_hora.set('')
+        self.selection_fecha.set('')
+        self.selection_mascota.set('')
+
+    def obtener_fila(self, event):
+        item = self.tabla.focus()
+        self.data = self.tabla.item(item)
 
     def actualizar_tabla(self):
+        self.cargar_fechas()
+        self.actualizar_horas()
         self.limpiar_campos()
         datos = self.bd.mostrar_citas()
         self.tabla.delete(*self.tabla.get_children())
@@ -72,22 +87,40 @@ class Turnos(Aplicacion):
     def agregar_datos(self):
         self.cargar_macotas()
         self.cargar_servicios()
-        fecha = self.fecha.get()
-        hora = self.hora.get()
+        self.cargar_fechas()
+        hora = [h['Id'] for h in self.Horas if h['Hora'] == self.selection_hora.get()][0]
         mascota = [m['Id'] for m in self.mascotas if m['Nombre'] == self.selection_mascota.get()][0]
         servicio = [s['Id'] for s in self.Servicios if s['Descripcion'] == self.selection_servicios.get()][0]
-        self.bd.insertar_cita(fecha, hora, mascota,servicio)
-        self.limpiar_campos()
-        self.actualizar_tabla()
-
-    def eliminar_fila(self):
-        pass
+        if hora and mascota and servicio != 0:
+            self.bd.insertar_cita(hora, mascota, servicio)
+            self.bd.modificar_disponibles(hora,0)
+            self.limpiar_campos()
+            self.actualizar_tabla()
+            self.cargar_fechas()
+        else:
+            self.alerta_vacio()
 
     def modificar(self):
         pass
+        boton =  Button(self.frame_uno, text='Modificar', command= self.modificar, font= ('Arial', 9, 'bold'), width=20,
+            bd=3 ).grid(column=2, row=4, pady= 5, padx=5)
+        boton.configure(state="disabled")
 
-    def obtener_fila(self):
-        pass
+    def eliminar_fila(self):
+        item = self.tabla.selection()[0]
+        self.data = self.tabla.item(item)
+        id = self.data['text']
+        # print(id)
+        datos= self.bd.mostrar_citas()
+        citas=[{'Id': row[0], 'IdHora': row[5]} for row in datos]
+        #print(datos)
+        hora= next((cita['IdHora'] for cita in citas if cita['Id'] == id), None)
+        #print(hora) 
+        if hora != None:
+            self.bd.modificar_disponibles(hora,1)
+            self.bd.eliminar_cita(id)
+            self.actualizar_tabla()
+            self.limpiar_campos()
 
     def cargar_macotas(self):
         db_rows = self.bd.mostrar_pacientes()
@@ -98,6 +131,17 @@ class Turnos(Aplicacion):
         db_rows = self.bd.mostrar_servicios()
         self.Servicios = [{'Id': row[0], 'Descripcion': row[1]} for row in db_rows]
         return self.Servicios
+
+    def cargar_fechas(self):
+        db_rows = self.bd.mostrar_disponibles()
+        self.Fechas = [{'Id': row[0], 'Fecha': row[1]}for row in db_rows]
+        self.Horas =  self.Horas = [{'Id': row[0], 'Fecha': row[1], 'Hora': row[2]} for row in db_rows]
+        return self.Fechas
+
+    def actualizar_horas(self):
+        fecha_seleccionada = self.selection_fecha.get()
+        horas_fecha_seleccionada = [h['Hora'] for h in self.Horas if h['Fecha'] == fecha_seleccionada]
+        self.combo_hora['values'] = horas_fecha_seleccionada
 
     def widgets(self):
         super().config_widgets()
@@ -114,18 +158,25 @@ class Turnos(Aplicacion):
         Label(self.frame_uno,text= 'Servicio', fg='black', bg='white',
             font=('Arial', 13, 'bold')).grid(column=0,row=4, pady=5)
 
-        Entry(self.frame_uno, textvariable=self.fecha, font=('Comic Sans', 12)).grid(column=1,row=1)
-        Entry(self.frame_uno, textvariable=self.hora, font=('Comic Sans', 12)).grid(column=1,row=2)
+        self.combo_fecha = ttk.Combobox(self.frame_uno, textvariable=self.selection_fecha)
+        self.combo_fecha.grid(column=1, row=1)
+        self.combo_hora = ttk.Combobox(self.frame_uno, textvariable=self.selection_hora)
+        self.combo_hora.grid(column=1, row=2)
+        self.combo_mascotas = ttk.Combobox(self.frame_uno, textvariable=self.selection_mascota)
+        self.combo_mascotas.grid(column=1, row=3)
 
-        combo_mascotas = ttk.Combobox(self.frame_uno, textvariable=self.selection_mascota)
-        combo_mascotas.grid(column=1, row=3)
-        combo_servicios = ttk.Combobox(self.frame_uno, textvariable=self.selection_servicios)
-        combo_servicios.grid(column=1, row=4)
+        self.combo_servicios = ttk.Combobox(self.frame_uno, textvariable=self.selection_servicios)
+        self.combo_servicios.grid(column=1, row=4)
+
+        fechas = self.cargar_fechas()
+        self.combo_fecha['values'] = [f['Fecha'] for f in fechas]
+        self.combo_fecha.bind('<<ComboboxSelected>>', lambda event: self.actualizar_horas())
+
         mascotas =self.cargar_macotas()
-        combo_mascotas['values'] = [masc['Nombre'] for masc in mascotas]
+        self.combo_mascotas['values'] = [masc['Nombre'] for masc in mascotas]
 
         servicios =self.cargar_servicios()
-        combo_servicios['values'] = [s['Descripcion'] for s in servicios]
+        self.combo_servicios['values'] = [s['Descripcion'] for s in servicios]
 
 
         self.tabla['columns']= ('Fecha','Hora', 'Mascota','Servicio')
@@ -144,6 +195,7 @@ class Turnos(Aplicacion):
     
         self.tabla.bind("<<TreeviewSelect>>", self.obtener_fila)
 
+    
 
 class Servicios(Aplicacion):
     def __init__(self, master, *args):
@@ -151,7 +203,6 @@ class Servicios(Aplicacion):
         self.descripcion = StringVar()
         self.precio = StringVar()
         self.selected_option = StringVar()
-        self.bd=Conexion()
         self.widgets()
         self.actualizar_tabla()
 
@@ -173,6 +224,8 @@ class Servicios(Aplicacion):
             self.bd.insertar_servicios(descripcion, precio)
             self.limpiar_campos()
             self.actualizar_tabla()
+        else:
+            self.alerta_vacio()
 
     def obtener_fila(self,event):
             item = self.tabla.focus()
@@ -203,6 +256,8 @@ class Servicios(Aplicacion):
             self.bd.actualizar_servicios(Id, descripcion, precio)
             self.actualizar_tabla()
             self.limpiar_campos()
+        else:
+            self.alerta_vacio()
 
     def widgets(self):
         super().config_widgets()
@@ -226,9 +281,6 @@ class Servicios(Aplicacion):
         self.tabla.heading('#0',text='Id',anchor='center')
         self.tabla.heading('Servicio',text='Servicio',anchor='center')
         self.tabla.heading('Precio',text='Precio',anchor='center')
-
-        
-
         self.tabla.bind("<<TreeviewSelect>>", self.obtener_fila)
 
 class Propietarios(Aplicacion):
@@ -239,7 +291,6 @@ class Propietarios(Aplicacion):
         self.Apellido = StringVar()
         self.Telefono = StringVar()
         self.Email = StringVar()
-        self.bd=Conexion()
         self.widgets()
         self.actualizar_tabla()
         
@@ -268,6 +319,8 @@ class Propietarios(Aplicacion):
             self.bd.insertar_propietarios(dni, Nombre, Apellido,Telefono, Email)
             self.limpiar_campos()
             self.actualizar_tabla()
+        else:
+            self.alerta_vacio()
             
     def obtener_fila(self,event):
         item = self.tabla.focus()
@@ -294,17 +347,19 @@ class Propietarios(Aplicacion):
     def modificar(self):
         item = self.tabla.focus()
         self.data = self.tabla.item(item)
-        DNI = self.data['text']
+        Id_prop = self.data['text']
+        DNI = self.DNI.get()
         Nombre = self.Nombre.get()
         Apellido = self.Apellido.get()
         telefono = self.Telefono.get()
         email = self.Email.get()
         if DNI and Nombre and Apellido and telefono and email != '':
-            self.bd.actualizar_propietario(DNI, Nombre, Apellido, telefono, email)
+            self.bd.actualizar_propietario(DNI, Nombre, Apellido, telefono, email, Id_prop)
             self.actualizar_tabla()
             self.limpiar_campos()
-            
-            
+        else:
+            self.alerta_vacio()
+                  
     def widgets(self):
         super().config_widgets()
         Label(self.frame_uno, text = 'Opciones', fg= 'black', bg='white',
@@ -350,7 +405,6 @@ class Pacientes(Aplicacion):
         self.Raza = StringVar()
         self.Edad = StringVar()
         self.selected_option = StringVar()
-        self.bd=Conexion()
         self.widgets()
         self.actualizar_tabla()
         self.Dueño = StringVar()
@@ -404,6 +458,8 @@ class Pacientes(Aplicacion):
                     self.bd.actualizar_pacientes(id_paciente, Nombre, Especie, Raza, Edad)
                     self.actualizar_tabla()
                     self.limpiar_campos()
+                else:
+                    self.alerta_vacio()
 
     def combo_input(self):
                 db_rows = self.bd.mostrar_propietarios()
@@ -416,12 +472,13 @@ class Pacientes(Aplicacion):
         Edad =self.Edad.get()
         Especie=self.Especie.get()
         Raza = self.Raza.get()
-        Dueño = [propietario['DNI'] for propietario in self.propietarios if propietario['Nombre'] == self.selected_option.get()][0]
-        datos = (Nombre, Especie, Raza, Edad, Dueño)
-        if Nombre and Especie and Raza and Edad and Dueño !='':
+        if Nombre and Especie and Raza and Edad !='':
+            Dueño = [propietario['DNI'] for propietario in self.propietarios if propietario['Nombre'] == self.selected_option.get()][0]
             self.bd.insertar_pacientes(Nombre,Especie,Raza,Edad,Dueño)
             self.limpiar_campos()
             self.actualizar_tabla()
+        else:
+            self.alerta_vacio()
 
     def widgets(self):
                 super().config_widgets()
@@ -466,42 +523,34 @@ class Pacientes(Aplicacion):
                 self.tabla.heading('Dueño',text='Dueño',anchor='center')
                 self.tabla.bind("<<TreeviewSelect>>", self.obtener_fila)
 
-class Menu(Frame):
+class Menu(Aplicacion):
     def __init__(self, master=None):
         super().__init__(master)
         self.frame1 = None
         self.frame_actual = None
-
         self.crear_menu()
-
-    def volver(self):
-        self.master.destroy()
-        root = Tk()
-        root.geometry("800x500")
-        root.title("Sistema de veterinaria")
-        app = Menu(master=root)
-        app.mainloop()
 
     def crear_menu(self):
         if self.frame_actual is not None:
             self.frame_actual.destroy()
 
         self.frame_actual = self
-        self.frame_actual.grid(row=0, column=0, sticky='nsew')
+        self.frame_actual.configure(bg='white')
+        self.frame_actual.grid(column=0,row=0, sticky='nsew')
+        self.master.grid_columnconfigure(0, weight=1)
+        self.master.grid_rowconfigure(0, weight=1)
 
         label = Label(self, text="Bienvenido al sistema de veterinaria", fg='black', bg='white',
                       font=('Arial', 20, 'bold'))
-        label.grid(column=1, row=0)
-
-        button = Button(self, text="Pacientes", command=self.crear_pacientes, font=('Arial', 9, 'bold'),
-                        width=30, bd=10).grid(column=1, row=2)
-
+        label.grid(column=1, row=0,  pady=20)
+        button = Button(self.frame_actual, text="Pacientes", command=self.crear_pacientes, font=('Arial', 9, 'bold'),
+                        width=30, bd=10).grid(column=1, row=2, pady=10)
         button = Button(self, text="Propietarios", command=self.crear_propietarios, font=('Arial', 9, 'bold'),
-                        width=30, bd=10).grid(column=1, row=3)
+                        width=30, bd=10).grid(column=1, row=3,  pady=10)
         button = Button(self, text="Servicios", command=self.crear_servicios, font=('Arial', 9, 'bold'),
-                        width=30, bd=10).grid(column=1, row=4)
+                        width=30, bd=10).grid(column=1, row=4,  pady=10)
         button = Button(self, text="Turnos", command=self.crear_turnos, font=('Arial', 9, 'bold'),
-                        width=30, bd=10).grid(column=1, row=5)
+                        width=30, bd=10).grid(column=1, row=5,  pady=10)
 
 
     def crear_pacientes(self):
